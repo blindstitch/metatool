@@ -1,0 +1,319 @@
+#!/usr/bin/env python
+
+videofiletypeslist = "mxf MOV mp4 mts"
+audiofiletypeslist = "WAV AIFF caf"
+imagefiletypeslist = "jpg cr2 crw arw tiff"
+
+favoritecolumns = [u'QuickTime:CompressorID', u'QuickTime:Duration', u'QuickTime:VideoFrameRate', u'Composite:ImageSize', u'MXF:Duration']
+defaultcolumns = [u'File:FileName', u'MD5Checksum']
+
+# Do not edit past this point.
+
+import os, sys, time, subprocess
+import csv, json
+import exiftool # http://smarnach.github.io/pyexiftool/
+import re
+
+import pprint
+pp = pprint.PrettyPrinter(indent=1)
+
+def printfancy(message):
+	separators = "=" * 6
+	print(separators + " " + message + " " + separators)
+
+class filetypes :
+	video = videofiletypeslist.upper().rsplit(" ") + videofiletypeslist.lower().rsplit(" ")
+	audio = audiofiletypeslist.upper().rsplit(" ") + audiofiletypeslist.lower().rsplit(" ")
+	image = imagefiletypeslist.upper().rsplit(" ") + imagefiletypeslist.lower().rsplit(" ")
+	all = video + audio + image
+	allforprinting = videofiletypeslist + " " + audiofiletypeslist + " " + imagefiletypeslist
+	allforprinting = allforprinting.upper()
+
+def uniques(seq, idfun=None): 
+	if idfun is None:
+	   def idfun(x): return x
+	seen = {}
+	result = []
+	for item in seq:
+	   marker = idfun(item)
+	   if marker in seen: continue
+	   seen[marker] = 1
+	   result.append(item)
+	return result
+
+
+# Start and inputs
+
+print "video file types being detected:\n" + filetypes.allforprinting
+printfancy("Ready.")
+print "\n"
+
+# Path inputs - arguments and prompts
+
+import argparse
+
+parser = argparse.ArgumentParser(description='MetaTool 2015 Karl Tacheron. All arguments are optional.',argument_default=False)
+
+parser.add_argument('inputpath', action='store', nargs='?', help='Path to folder containing reels')
+parser.add_argument('--exportpath', action="store", dest="exportpath", help='Path to folder to export JSONs and CSVs')
+
+args = parser.parse_args()
+
+if args.inputpath != False :
+	inputpath = args.inputpath
+else : 
+	print 'Drag on an input folder to this window and press Return.'
+	inputpath = raw_input('> ')
+
+# breaks with bad path
+
+def conformpath(path) :
+	if " " in path[-1] : path = path[0:-1]
+	if '/' in path[-1] : path = path[0:-1]
+	return path
+
+inputpath = re.sub(r"\\","",inputpath)
+inputpath = conformpath(inputpath)
+inputfolder = inputpath.split('/')[-1]
+
+if os.path.isdir(inputpath) == False : 
+	print "Bad input path. Exiting."
+	exit()
+
+exportpath = args.exportpath
+
+def exportpathprompt() :
+	global exportpath
+	if exportpath != False :
+		print 'Metadata will be exported to path: ' + exportpath
+	else : 
+		print 'Drag the destination folder for CSVs to this window and press Return.'
+		exportpath = raw_input('> ')
+		exportpath = conformpath(exportpath)
+print
+
+exportpathprompt()
+
+exportpath = re.sub(r"\\","",exportpath)
+
+if os.path.isdir(exportpath) == False : 
+	print "Bad metadata export path. Exiting."
+	exit()
+
+
+def getfilelist(path) :
+	result = [os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames]
+	return result	    
+
+def lastiteminpath(path) : return path.split('/')[-1]
+def toplevelfoldertopath(inputfolder) : return inputpath + '/' + inputfolder
+
+def mergetwodicts(x, y):
+    z = x.copy()
+    z.update(y)
+    return z
+
+def sizehumanreadable(bytes) :
+	if bytes > 2 ** 30 :
+		return str(round(bytes / 2 ** 30.,2)) + " GB"
+	else : 
+		return str(round(bytes / 2 ** 20.,2)) + " MB"
+
+
+
+
+# Reelmetadata
+
+toplevelpaths = [inputpath + '/' + f for f in os.listdir(inputpath) if '.' not in f]
+toplevelfolders = [f for f in os.listdir(inputpath) if '.' not in f]
+toplevelfolders.sort()
+toplevelpaths.sort()
+
+def ziptoeach(list,dictionary) :
+    return dict(zip(list,[dictionary for a in list]))
+
+tempreelsdict = {}
+
+reelmetadata = {'folderpath':inputpath,'foldername':inputfolder,'reels':tempreelsdict}
+
+for folderpath in toplevelpaths :
+	clipfilepaths = [f for f in getfilelist(folderpath) if f.rsplit('.')[-1] in filetypes.all]
+	tempclipsdict = {}
+	# temporaryclipitem = {clipname:{'path':path}}
+	for clipfilepath in clipfilepaths : 
+		# make an item for it with empty fields for meta but have filesize and path and join it to temporaryclipitem
+		temporaryclipitem = {unicode(lastiteminpath(clipfilepath)) : {'path':clipfilepath,'meta':{u'MD5Checksum':''},'filesize':os.path.getsize(clipfilepath),'md5':''}}
+		tempclipsdict = mergetwodicts(tempclipsdict,temporaryclipitem)
+
+	tempreelitem = { unicode(lastiteminpath(folderpath)) : {'path':folderpath, 'clips':tempclipsdict, 'metadatacolumns':'','reelsizebytes':0,'clipsinreel':0}}
+	reelmetadata['reels'] = mergetwodicts(reelmetadata['reels'],tempreelitem)
+
+
+for reel in reelmetadata['reels'] :
+	filesinreel = len(reelmetadata['reels'][reel]['clips'])
+	reelmetadata['reels'][reel]['clipsinreel'] = filesinreel
+
+	reelsizebytes = 0
+	for clip in reelmetadata['reels'][reel]['clips'] :
+		 reelsizebytes += reelmetadata['reels'][reel]['clips'][clip]['filesize']
+	reelmetadata['reels'][reel]['reelsizebytes'] = reelsizebytes
+	reelmetadata['reels'][reel]['reelsizehumanreadable'] = sizehumanreadable(reelsizebytes)
+
+	listofclipnames = reelmetadata['reels'][reel]['clips'].keys()
+	listofclipnames.sort()
+	reelmetadata['reels'][reel]['listofclipnames'] = listofclipnames
+
+	listofclippaths = [reelmetadata['reels'][reel]['clips'][a]['path'] for a in reelmetadata['reels'][reel]['clips']]
+	listofclippaths.sort()
+	reelmetadata['reels'][reel]['listofclippaths'] = listofclippaths
+
+
+## hacky remove empty
+for emptyreel in [a for a in reelmetadata['reels'] if reelmetadata['reels'][a]['clipsinreel'] == 0] :
+	reelmetadata['reels'].pop(emptyreel, None)
+
+listofreels = [a for a in reelmetadata['reels']]
+listofreels.sort()
+reelmetadata['listofreels'] = listofreels
+
+
+def printgeneralfoldermeta() :
+	print
+	printfancy(reelmetadata['foldername'])
+	for reel in reelmetadata['listofreels'] :
+		reelsizehumanreadable = reelmetadata['reels'][reel]['reelsizehumanreadable']
+		clipsinreel = reelmetadata['reels'][reel]['clipsinreel']
+		print reel + ' (' + str(clipsinreel) + ' files, ' + reelsizehumanreadable + ')'
+
+
+def createdatestamps() : 
+	global datestampedname
+	global datestamp
+	global datestampedexportpath
+	datestamp = time.strftime("%Y-%m-%d_%H%M%S",time.strptime(time.ctime()))
+	datestampedname = inputfolder + ' ' + datestamp
+	datestampedexportpath = exportpath + '/' + datestampedname
+
+
+createdatestamps()
+print
+print 'Exporting JSONs and CSVs to destination folder:\n' + datestampedexportpath
+
+
+printgeneralfoldermeta()
+print
+
+
+# Build
+
+def makeexportfolders() :
+	os.makedirs(datestampedexportpath)
+	os.makedirs(datestampedexportpath +'/csv')
+
+def loadreelEXIF(reel) :
+	print 'Gathering EXIF metadata for reel: ' + reel
+	names = reelmetadata['reels'][reel]['listofclipnames']
+	paths = reelmetadata['reels'][reel]['listofclippaths']
+
+	with exiftool.ExifTool() as et: 
+		listofmetadatadicts = et.get_metadata_batch(paths)
+		for metadataitem in listofmetadatadicts :
+			reelmetadata['reels'][reel]['clips'][metadataitem[u'File:FileName']]['meta'] = metadataitem
+	
+	allmetadatafields = [reelmetadata['reels'][reel]['clips'][a]['meta'].keys() for a in reelmetadata['reels'][reel]['clips']]
+	import itertools
+	allmetadatafieldsmerged = list(itertools.chain.from_iterable(allmetadatafields))
+	uniquemetadatafields = uniques(allmetadatafieldsmerged)
+	uniquemetadatafields.sort()
+	reelmetadata['reels'][reel]['metadatacolumns'] = uniquemetadatafields
+
+
+def loadclipMD5(reel,clip) :
+	clippath = reelmetadata['reels'][reel]['clips'][clip]['path']
+	clipmd5 = subprocess.check_output(['md5',clippath]).split(' ')[-1][:-1]
+	reelmetadata['reels'][reel]['clips'][clip]['md5'] = clipmd5
+	reelmetadata['reels'][reel]['clips'][clip]['meta'][u'MD5Checksum'] = clipmd5
+	print '\t' + clip + ": " + clipmd5
+
+def exportreelCSV(reel) :
+	# build a preferred column order: FileName, favoritecolumns, everything else.
+	columns = defaultcolumns + [a for a in reelmetadata['reels'][reel]['metadatacolumns'] if a in favoritecolumns] + [a for a in reelmetadata['reels'][reel]['metadatacolumns'] if a not in favoritecolumns]
+	reelcsvfilepath = datestampedexportpath + '/csv/' + reel + '.csv'
+	reelcsvfile = open(reelcsvfilepath, 'wb')
+	destinations = [reelcsvfile]
+	for csvfile in destinations:
+		# write reel name
+		# write rows
+		# write a blank line
+		dw = csv.DictWriter(csvfile, delimiter=',', fieldnames=columns)
+		cw = csv.writer(csvfile)
+		cw.writerow(['Reel name:',reel])
+		cw.writerow(columns)
+		for a in reelmetadata['reels'][reel]['listofclipnames'] :
+			dw.writerow(reelmetadata['reels'][reel]['clips'][a]['meta'])
+		cw.writerow([''])
+	reelcsvfile.close()
+
+
+def exportmasterCSV() :
+	mastercsvfile = open(datestampedexportpath + '/' + datestampedname + '.csv', 'a')
+	for reel in reelmetadata['listofreels'] : 
+		columns = defaultcolumns + [a for a in reelmetadata['reels'][reel]['metadatacolumns'] if a in favoritecolumns] + [a for a in reelmetadata['reels'][reel]['metadatacolumns'] if a not in favoritecolumns]
+		#columns = reelmetadata['reels'][reel]['metadatacolumns']
+		dw = csv.DictWriter(mastercsvfile, delimiter=',', fieldnames=columns)
+		cw = csv.writer(mastercsvfile)
+		cw.writerow(['Reel name:',reel])
+		cw.writerow(columns)
+		for a in reelmetadata['reels'][reel]['listofclipnames'] :
+			dw.writerow(reelmetadata['reels'][reel]['clips'][a]['meta'])
+		cw.writerow([''])
+	mastercsvfile.close()
+
+def exportJSON() :
+	with open(datestampedexportpath + '/' + datestampedname + '.json', 'w') as fp:
+		json.dump(reelmetadata, fp) 
+
+
+
+
+# Confirm prompt 
+
+print 'Choose an option to continue: \n(a) Get metadata only\n(b) Get MD5s and metadata\n(c) Do nothing'
+selection = raw_input('> ')
+print
+
+if selection == 'a' :
+	makeexportfolders()
+	for reel in reelmetadata['listofreels'] : 
+		loadreelEXIF(reel)
+		exportreelCSV(reel)
+	exportmasterCSV()
+	exportJSON()
+	print
+	print 'Done! Metadata exported to:\n' + datestampedexportpath	
+	print
+
+elif selection == 'b' :
+	makeexportfolders()
+	for reel in reelmetadata['listofreels'] : 
+		loadreelEXIF(reel)
+		exportreelCSV(reel)
+		print 'Gathering MD5 checksums:'
+		for clip in reelmetadata['reels'][reel]['listofclipnames'] :
+			loadclipMD5(reel,clip)
+			exportreelCSV(reel)	
+		print
+	exportmasterCSV()
+	exportJSON()
+	print
+	print 'Done! Metadata exported to:\n' + datestampedexportpath
+	print
+
+elif selection == 'c' :
+	print 'Exiting. No metadata was exported.'
+	print
+	exit()
+
+
+
+
