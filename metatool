@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 
 videofiletypeslist = "mxf MOV mp4 mts"
 audiofiletypeslist = "WAV AIFF caf"
@@ -100,7 +100,6 @@ if os.path.isdir(exportpath) == False :
 	print "Bad metadata export path. Exiting."
 	exit()
 
-
 def getfilelist(path) :
 	result = [os.path.join(dp, f) for dp, dn, filenames in os.walk(path) for f in filenames]
 	return result	    
@@ -118,9 +117,6 @@ def sizehumanreadable(bytes) :
 		return str(round(bytes / 2 ** 30.,2)) + " GB"
 	else : 
 		return str(round(bytes / 2 ** 20.,2)) + " MB"
-
-
-
 
 # Reelmetadata
 
@@ -148,7 +144,6 @@ for folderpath in toplevelpaths :
 	tempreelitem = { unicode(lastiteminpath(folderpath)) : {'path':folderpath, 'clips':tempclipsdict, 'metadatacolumns':'','reelsizebytes':0,'clipsinreel':0}}
 	reelmetadata['reels'] = mergetwodicts(reelmetadata['reels'],tempreelitem)
 
-
 for reel in reelmetadata['reels'] :
 	filesinreel = len(reelmetadata['reels'][reel]['clips'])
 	reelmetadata['reels'][reel]['clipsinreel'] = filesinreel
@@ -168,14 +163,13 @@ for reel in reelmetadata['reels'] :
 	reelmetadata['reels'][reel]['listofclippaths'] = listofclippaths
 
 
-## hacky remove empty
+# Remove empty
 for emptyreel in [a for a in reelmetadata['reels'] if reelmetadata['reels'][a]['clipsinreel'] == 0] :
 	reelmetadata['reels'].pop(emptyreel, None)
 
 listofreels = [a for a in reelmetadata['reels']]
 listofreels.sort()
 reelmetadata['listofreels'] = listofreels
-
 
 def printgeneralfoldermeta() :
 	print
@@ -185,7 +179,6 @@ def printgeneralfoldermeta() :
 		clipsinreel = reelmetadata['reels'][reel]['clipsinreel']
 		print reel + ' (' + str(clipsinreel) + ' files, ' + reelsizehumanreadable + ')'
 
-
 def createdatestamps() : 
 	global datestampedname
 	global datestamp
@@ -194,15 +187,12 @@ def createdatestamps() :
 	datestampedname = inputfolder + ' ' + datestamp
 	datestampedexportpath = exportpath + '/' + datestampedname
 
-
 createdatestamps()
 print
 print 'Exporting JSONs and CSVs to destination folder:\n' + datestampedexportpath
 
-
 printgeneralfoldermeta()
 print
-
 
 # Build
 
@@ -254,7 +244,6 @@ def exportreelCSV(reel) :
 		cw.writerow([''])
 	reelcsvfile.close()
 
-
 def exportmasterCSV() :
 	mastercsvfile = open(datestampedexportpath + '/' + datestampedname + '.csv', 'a')
 	for reel in reelmetadata['listofreels'] : 
@@ -272,9 +261,6 @@ def exportmasterCSV() :
 def exportJSON() :
 	with open(datestampedexportpath + '/' + datestampedname + '.json', 'w') as fp:
 		json.dump(reelmetadata, fp) 
-
-
-
 
 # Confirm prompt 
 
@@ -313,7 +299,3 @@ elif selection == 'c' :
 	print 'Exiting. No metadata was exported.'
 	print
 	exit()
-
-
-
-
