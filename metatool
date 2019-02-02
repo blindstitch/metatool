@@ -7,14 +7,8 @@ imagefiletypeslist = "jpg cr2 crw arw tiff"
 favoritecolumns = [u'QuickTime:CompressorID', u'QuickTime:Duration', u'QuickTime:VideoFrameRate', u'Composite:ImageSize', u'MXF:Duration']
 defaultcolumns = [u'File:FileName', u'MD5Checksum']
 
-# Do not edit past this point.
+import os, sys, time, subprocess, csv, json, re, exiftool, pprint
 
-import os, sys, time, subprocess
-import csv, json
-import exiftool # http://smarnach.github.io/pyexiftool/
-import re
-
-import pprint
 pp = pprint.PrettyPrinter(indent=1)
 
 def printfancy(message):
