@@ -1,8 +1,7 @@
 # metatool
 
 Tool to create metadata reports for collections of video files.
-Useful for video post-production departments looking to simplify creating catalogs of video archives.
-Works best with reels of raw video and photographs. Supports all formats that Exiftool supports.
+Also collects and stores MD5 hashes of media.
 
 ## Usage
  - Organize your video into folders (no video files can be at the top-level).
