@@ -1,3 +1,5 @@
+Note: I wrote this in 2014 when working at Vice in my spare time about a month after I started learning python. The code's bad, folks
+
 # metatool
 
 Tool to create metadata reports for collections of video files.
